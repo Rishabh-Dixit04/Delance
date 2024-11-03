@@ -45,6 +45,9 @@
 // const { MNEMONIC, PROJECT_ID } = process.env;
 
 // const HDWalletProvider = require('@truffle/hdwallet-provider');
+// // const mnemonic = "atom uncle weather permit horn maid already dizzy put endless believe baby"; // Replace with your wallet's mnemonic
+// const sepoliaRpcUrl = "https://quiet-newest-field.ethereum-sepolia.quiknode.pro/f024759691d7ce0e8c4cfdafa373040283eccc6e"; // Replace with QuickNode Sepolia RPC URL
+// const privateKey = "7e5d61ace022e831a46b716919bd0f97156c231fb898ee242c836b16e1117139"; // Replace with your private key
 
 module.exports = {
   /**
@@ -69,6 +72,14 @@ module.exports = {
      port: 7545,            // Standard Ethereum port (default: none)
      network_id: "*",       // Any network (default: none)
     },
+    // sepolia: {
+    //   provider: () => new HDWalletProvider(privateKey, sepoliaRpcUrl),
+    //   network_id: 11155111,  // Sepolia network ID
+    //   gas: 2000000,           // Customize based on your contract needs
+    //   gasPrice: 12000000000,  // Customize based on current gas prices on Sepolia
+    //   networkCheckTimeout: 100000,
+    //   from: "0xd3F6e5d281D9901Ce000c4B1591585946A14a8B0", // Replace with the address of the account
+    // }
     //
     // An additional network, but with some advanced options…
     // advanced: {
@@ -110,9 +121,10 @@ module.exports = {
       // docker: true,        // Use "0.5.1" you've installed locally with docker (default: false)
       settings: {          // See the solidity docs for advice about optimization and evmVersion
        optimizer: {
-         enabled: false,
+         enabled: true,
          runs: 200
        },
+       viaIR: true,
        evmVersion: "byzantium"
       }
     }

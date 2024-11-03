@@ -1,8 +1,9 @@
 import Web3 from 'web3';
 import ProjectsContract from '../contracts/Projects.json'; 
-import RequestManagerContract from '../contracts/RequestManager.json'
-const PROJECTS_CONTRACT_ADDRESS = '0x9B2Fe4Cc8b5464a418FD0B77530d00050bC2c132';
-const REQUEST_MANAGER_CONTRACT_ADDRESS = '0x100CAB3ad1A74f26BC64a045F0EEb8616d856964'
+import RequestManagerContract from '../contracts/RequestManager.json';
+import { verifyIPFSFile, downloadFileFromIPFS } from './ipfs';
+const PROJECTS_CONTRACT_ADDRESS = '0xC0E05343e3CE6B07aBdD0E0ce8fDbad896dE29B0';
+const REQUEST_MANAGER_CONTRACT_ADDRESS = '0xE90F82B0F2753ee8668EbA568073D37FBa984e44';
 
 export const connectWallet = async () => {
   if (window.ethereum) {
@@ -100,7 +101,7 @@ export const fetchAllProjects = async () => {
       id: id.toString(), // Convert BigInt to string if needed
       title: names[index],
       description: descriptions[index],
-      reward: rewards[index].toString(), // Convert BigInt to string if needed
+      reward: rewards[index], // Convert BigInt to string if needed
       status: statuses[index].toString(), // Assuming status is an enum, adjust as needed
       employer: employers[index],
     }));
@@ -127,7 +128,7 @@ export const fetchUserProjects = async (selectedAccount) => {
 
     // Call viewProjects function to get all projects
     const projectData = await contract.methods.viewProjects().call();
-
+    const statusEnum = ["Closed", "Open"];
     // Deconstruct arrays from projectData
     const ids = projectData[0];
     const names = projectData[1];
@@ -135,14 +136,13 @@ export const fetchUserProjects = async (selectedAccount) => {
     const rewards = projectData[3];
     const statuses = projectData[4];
     const employers = projectData[5];
-
     // Map the arrays to create an array of project objects and filter by employer
     const projects = ids.map((id, index) => ({
       id: id.toString(), // Convert BigInt to string if needed
       title: names[index],
       description: descriptions[index],
-      reward: rewards[index].toString(), // Convert BigInt to string if needed
-      status: statuses[index].toString(), // Assuming status is an enum, adjust as needed
+      reward: rewards[index], // Convert BigInt to string if needed
+      status: statusEnum[statuses[index]], // Assuming status is an enum, adjust as needed
       employer: employers[index],
     })).filter(project => project.employer && project.employer.toLowerCase() === selectedAccount.toLowerCase());
 
@@ -245,7 +245,7 @@ export const getFreelancerRating = async (freelancerAddress) => {
     const rating = await contract.methods.getFreelancerRating(freelancerAddress).call();
 
     console.log(`Freelancer rating: ${rating}`);
-    return { success: true, rating: rating };
+    return { success: true, rating: rating.toString() };
   } catch (error) {
     console.error("Error getting freelancer rating:", error);
     return { success: false, message: 'Failed to get freelancer rating.' };
@@ -283,6 +283,290 @@ export const sendRequest = async (projectId, freelancerRating, freelancerAddress
   }
 };
 
+export const fetchRequestsByProjectId = async (projectId) => { 
+  console.log("Project ID:", projectId);
+  try {
+    console.log("Step 1: Getting contract instance...");
+    const contract = await getRequestManagerContract(); // Get the instance of the RequestManager contract
+    console.log("Step 2: Calling viewAllRequests...");
 
+    // Call the contract function
+    const result = await contract.methods.viewAllRequests().call();
+    console.log("Step 3: Response received:", result);
 
+    // Destructure the returned arrays to match the Solidity return values
+    const requestIds = result[0];
+    const projectIds = result[1];
+    const freelancers = result[2];
+    const freelancerRatings = result[3];
+    const statuses = result[4];
+    const escrowContracts = result[5];
+    console.log("4");
+    // Map the requests into an array of objects and filter by projectId
+    const statusEnum = ["Pending", "Approved", "Rejected"];
+    const filteredRequests = requestIds.map((id, index) => ({
+      requestId: id,
+      projectId: projectIds[index].toString(),
+      freelancer: freelancers[index],
+      freelancerRating: freelancerRatings[index].toString(),
+      status: statusEnum[statuses[index]], // Assuming you want to keep the enum or convert it to a string
+      escrowContract: escrowContracts[index], // This can be an address or object based on your requirements
+    })).filter(request => request.projectId === projectId.toString()); // Filter by projectId
+    
+    return filteredRequests; // Return the filtered array of requests
+  } catch (error) {
+    console.error("Error fetching requests by project ID:", error);
+    throw error; // Re-throw the error for further handling if needed
+  }
+};
 
+export const acceptRequest = async (requestId, employer, projectReward) => {
+  try {
+    console.log(1);
+    const contract = await getRequestManagerContract();
+    const reward = projectReward;
+    console.log(2);
+    await contract.methods.acceptRequest(requestId).send({
+      from: employer,
+      value: reward,
+    });
+    console.log('Request accepted successfully');
+  } catch (error) {
+    console.error('Error accepting request:', error);
+  }
+};
+
+export const rejectRequest = async (requestId, employer) => {
+  try {
+    const contract = await getRequestManagerContract();
+    console.log(1);
+    await contract.methods.rejectRequest(requestId).send({
+      from: employer,
+    });
+    console.log('Request rejected successfully');
+  } catch (error) {
+    console.error('Error rejecting request:', error);
+  }
+};
+
+export const fetchAcceptedProjectsByFreelancer = async (freelancer) => {
+  try {
+    console.log("Fetching accepted projects for freelancer:", freelancer);
+
+    // Get the instance of your smart contract (adjust as needed)
+    const contract = await getRequestManagerContract(); // Replace with the actual function to get the Projects contract instance
+
+    // Call the viewAcceptedProjectsByFreelancer function with the freelancer address
+    const result = await contract.methods.viewAcceptedProjectsByFreelancer(freelancer).call();
+
+    console.log("Response received:", result);
+
+    // Destructure the returned arrays to match the Solidity return values
+    const projectIds = result[0];
+    const names = result[1];
+    const descriptions = result[2];
+    const rewards = result[3];
+    const statuses = result[4];
+    const employers = result[5];
+
+    // Assuming you have a status enum in your frontend to convert indexes to human-readable strings
+    const statusEnum = ["Closed", "Open"]; // Adjust to match the actual Project.Status enum in Solidity
+
+    // Map the projects into an array of objects
+    const projects = projectIds.map((id, index) => ({
+      id: id.toString(),
+      name: names[index],
+      description: descriptions[index],
+      reward: rewards[index].toString(),
+      status: statusEnum[statuses[index]], // Convert enum index to string
+      employer: employers[index],
+    }));
+
+    return projects; // Return the array of project objects
+  } catch (error) {
+    console.error("Error fetching accepted projects for freelancer:", error);
+    throw error; // Re-throw the error for further handling if needed
+  }
+};
+
+export async function addFile(milestoneId, name, rid, cid, account) {
+  try {
+      // Get the contract instance
+      const contract = await getRequestManagerContract();
+      // Call the addFile function in the smart contract
+      await contract.methods.addFile(milestoneId, name, rid, cid).send({ from: account });
+      await contract.methods.sendMilestoneReviewRequest(milestoneId, cid, account).send({from: account});
+      console.log('Transaction successful:');
+  } catch (error) {
+      console.error('Error calling addFile:', error);
+      throw error;
+  }
+};
+
+/**
+ * Downloads all files associated with a specific milestone.
+ * @param {number} milestoneId - The ID of the milestone to retrieve files for.
+ */
+export const downloadFilesForMilestone = async (milestoneId) => {
+  try {
+    console.log("Inside download function");
+    
+    // Call the smart contract function to get all files for the milestone
+    const contract = await getRequestManagerContract();
+    const result = await contract.methods.viewAllFilesForMilestone(milestoneId).call();
+    
+    // Destructure the result
+    const ids = result[0];
+    const names = result[2];
+    const cids = result[4];
+    console.log(`Number of files to download: ${ids.length}`);
+
+    const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    // Iterate through the files and download each one
+    for (let i = 0; i < ids.length; i++) {
+      const cid = cids[i];
+      const filename = names[i] || `downloadedFile_${ids[i]}`; // Use the name, or a default if name is empty
+      await downloadFileFromIPFS(cid, filename);
+      await delay(15000); // Wait before the next download
+      // // Verify if the file exists on IPFS
+      // const response = await verifyIPFSFile(cid);
+      // const { exists } = response; // Destructure to get the 'exists' property
+
+      // if (exists) {
+      //   console.log(`File exists for CID: ${cid}. Proceeding to download...`);
+      //   await downloadFileFromIPFS(cid, filename);
+      //   await delay(15000); // Wait before the next download
+      // } else {
+      //   console.log(`File does not exist for CID: ${cid}. Skipping download.`);
+      // }
+    }
+
+    console.log('All files processed for milestone:', milestoneId);
+  } catch (error) {
+    console.error('Error downloading files for milestone:', error);
+  }
+};
+
+export const fetchMilestoneReviewRequestsByMilestoneId = async (milestoneId) => {
+  console.log("Milestone ID:", milestoneId);
+  try {
+    console.log("Step 1: Getting contract instance...");
+    const contract = await getRequestManagerContract(); // Get the instance of the RequestManager contract
+    console.log("Step 2: Calling viewAllMilestoneReviewRequests...");
+
+    // Call the contract function
+    const result = await contract.methods.viewAllMilestoneReviewRequests().call();
+    console.log("Step 3: Response received:", result);
+
+    // Destructure the returned arrays to match the Solidity return values
+    const requestIds = result[0];
+    const milestoneIds = result[1];
+    const freelancers = result[2];
+    const cids = result[3];
+    const reviewedStatuses = result[4];
+
+    // Map the requests into an array of objects and filter by milestoneId
+    const filteredRequests = requestIds.map((id, index) => ({
+      requestId: id.toString(),
+      milestoneId: milestoneIds[index].toString(),
+      freelancer: freelancers[index],
+      cid: cids[index],
+      reviewed: reviewedStatuses[index],
+    })).filter(request => request.milestoneId === milestoneId.toString()); // Filter by milestoneId
+
+    return filteredRequests; // Return the filtered array of requests
+  } catch (error) {
+    console.error("Error fetching milestone review requests by milestone ID:", error);
+    throw error; // Re-throw the error for further handling if needed
+  }
+};
+
+// Function to accept a milestone review request
+export const acceptMilestoneReviewRequest = async (reviewRequestId, projId, selectedAccount) => {
+  try {
+    // Get the RequestManager and Projects contract instances
+    console.log(1);
+    const requestManagerContract = await getRequestManagerContract();
+    console.log(2);
+    // Call the acceptMilestoneReviewRequest function
+    await requestManagerContract.methods
+      .acceptMilestoneReviewRequest(reviewRequestId, projId)
+      .send({ from: selectedAccount });
+    console.log('Milestone review request accepted:');
+  } catch (error) {
+    console.error('Error accepting milestone review request:', error);
+    throw error; // Re-throw the error for handling in the UI
+  }
+};
+
+// Function to reject a milestone review request
+export const rejectMilestoneReviewRequest = async (reviewRequestId, reason, selectedAccount) => {
+  try {
+    // Get the RequestManager contract instance
+    const requestManagerContract = await getRequestManagerContract();
+
+    // Call the rejectMilestoneReviewRequest function
+    await requestManagerContract.methods
+      .rejectMilestoneReviewRequest(reviewRequestId, reason)
+      .send({ from: selectedAccount });
+  } catch (error) {
+    console.error('Error rejecting milestone review request:', error);
+    throw error; // Re-throw the error for handling in the UI
+  }
+};
+
+export const fetchReviewResponsesByMilestoneId = async (milestoneId) => {
+  console.log("Fetching review responses for Milestone ID:", milestoneId);
+
+  try {
+    console.log("Step 1: Getting contract instance...");
+    const contract = await getRequestManagerContract(); // Get the instance of the RequestManager contract
+    console.log("Step 2: Calling viewAllReviewResponses...");
+
+    // Call the contract function
+    const result = await contract.methods.viewAllReviewResponses().call();
+    console.log("Step 3: Response received:", result);
+
+    // Destructure each array from the result
+    const responseIds = result[0];
+    const milestoneIds = result[1];
+    const freelancers = result[2];
+    const responses = result[3];
+    const acceptedStatuses = result[4];
+
+    // Map each response into an object and filter by milestoneId
+    const filteredResponses = responseIds.map((id, index) => ({
+      responseId: id,
+      milestoneId: milestoneIds[index].toString(),
+      freelancer: freelancers[index],
+      response: responses[index],
+      accepted: acceptedStatuses[index],
+    })).filter(response => response.milestoneId === milestoneId.toString()); // Filter by milestoneId
+
+    return filteredResponses; // Return the filtered array of responses
+  } catch (error) {
+    console.error("Error fetching review responses by milestone ID:", error);
+    throw error; // Re-throw the error for further handling if needed
+  }
+};
+
+export const acceptRejectionReason = async (reviewRequestId, selectedAccount) => {
+  console.log("Accepting rejection reason for Review Request ID:", reviewRequestId);
+
+  try {
+    console.log("Step 1: Getting contract instance...");
+    const contract = await getRequestManagerContract(); // Get the instance of the RequestManager contract
+    console.log("Step 2: Sending transaction...");
+
+    // Send the transaction to the blockchain
+    const receipt = await contract.methods.acceptRejectionReason(reviewRequestId)
+      .send({ from: selectedAccount });
+
+    console.log("Transaction successful! Receipt:", receipt);
+    return receipt; // Return the transaction receipt for further handling if needed
+  } catch (error) {
+    console.error("Error accepting rejection reason:", error);
+    throw error; // Re-throw the error for further handling if needed
+  }
+};

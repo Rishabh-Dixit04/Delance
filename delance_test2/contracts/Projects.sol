@@ -90,6 +90,8 @@ contract Projects {
         emit MilestoneProofUploaded(_projectId, _milestoneId, _proofFileHash);
     }
 
+
+
     function getFreelancerRating(address _freelancer) public view returns (uint) {
         return freelancerRatings[_freelancer];
     }
